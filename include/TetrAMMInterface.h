@@ -5,15 +5,14 @@
 #define MIN_DATA_AVG_BIN 5
 #define MIN_DATA_ABG_ASCII 500
 
-#define MAX_SAMPLES 100000
-
-#define MAX_DATA_LEN_BIN 20000
-#define MAX_DATA_LEN_ASCII 200
+#define MAX_CHANNELS 4
 
 #define MAX_COMMAND_LEN 256
 #define SUCCESS "ACK"
 
 #include <string>
+#include <chrono>
+#include <fstream>
 
 #include <netdb.h>
 #include <unistd.h>
@@ -44,6 +43,9 @@ class TetrAMMInterface {
 
         // TCP/IP Communication for Data
         bool receiveData( );
+        void decodeData( );
+        void decodeSample( int iSample );
+        void writeData( );
 
         // Error Handling
         void dumpError( int error );
@@ -51,43 +53,46 @@ class TetrAMMInterface {
         // Check the response from the TetrAMM (look for "ACK" or "NACK")
         bool checkResponse( );
 
-        // TetrAMM Commands
-        bool checkVersion( );
-
-        bool activateASCII( );
+        // Check settings
+        bool checkRng( );
+        bool checkTRG( );
         bool checkASCII( );
-        bool deactivateASCII( );
-
-        bool setNumberOfChannels( int number );
+        bool checkVersion( );
+        bool checkAvgSample( );
         bool checkNumberOfChannels( );
 
-        bool readNumSamples( int numSamples );
-        bool readSample( );
-
-        bool checkAvgSample( );
-        bool setAvgSamples( int numSamples );
-        bool readAvgSample( int numSamples );
-
-        bool checkRng( );
-        bool setRng( int range );
-
-        bool checkTRG( );
+        // Change settings
         bool activateTRG( );
         bool deactivateTRG( );
+        bool activateASCII( );
+        bool deactivateASCII( );
 
-        bool startAcquisition( );
+        bool setRng( int range );
+        bool setAvgSamples( int numSamples );
+        bool setNumberOfChannels( int number );
+        
+        // Read data
+        bool readSample( );
+        bool readNumSamples( int seconds = 1 );
+        bool readAvgSample( int seconds = 1 ); // FIXME: This function is not working properly
+
+        // Acqusition
+        bool startAcquisition( int seconds = 1, std::string filename = "data.txt");
         bool stopAcquisition( );
-
-        bool getASCII( ){ return isASCII; }
-        bool getTRG( ){ return isTRG; }
-        int getNumberOfChannels( ){ return nChannels; }
-        int getNumberOfSamples( ){ return nSamples; }
-        int getRng( ){ return rng; }
-        std::string getVersion( ){ return ver; }
-
-        bool isAcquiringData( ){ return isAcquiring; }
-
         void acqusitionThread( );
+        void writeHeader( );
+        void writeFooter( );
+
+        // Getters
+        bool getTRG( ){ return isTRG; }
+        bool getASCII( ){ return isASCII; }
+        bool getAcqusition( ){ return isAcquiring; }
+
+        int getRng( ){ return rng; }
+        int getNumberOfSamples( ){ return nSamples; }
+        int getNumberOfChannels( ){ return nChannels; }
+        
+        std::string getVersion( ){ return ver; }
 
     private:
 
@@ -99,21 +104,25 @@ class TetrAMMInterface {
         char inBuffer[MAX_COMMAND_LEN];
         char outBuffer[MAX_COMMAND_LEN];
 
-        double sampleBufferBin[MAX_SAMPLES];
-        std::string dataBufferASCII[MAX_DATA_LEN_ASCII];
+        double dataBuffer[MAX_CHANNELS];
+        double samplesBuffer[MAX_CHANNELS][SAMPLING_RATE];
 
         int rng;
         int nChannels;
         int nSamples;
+        int numBytes;
         bool isASCII;
         bool isTRG;
         bool isAcquiring;
         std::string ver;
 
+        std::chrono::system_clock::time_point startTime;
+        std::chrono::system_clock::time_point stopTime;
+
         bool startCall;
         boost::thread* dataThread;
 
-
+        std::ofstream dataFile;
 
 };
 

@@ -163,32 +163,6 @@ bool TetrAMMInterface::connect( std::string address, int port ){
 
 }
 
-bool TetrAMMInterface::readSettings( ){
-
-  bool status;
-
-  status = checkVersion( );
-  if( !status ) return false;
-
-  status = checkASCII( );
-  if( !status ) return false;
-
-  status = checkNumberOfChannels( );
-  if( !status ) return false;
-
-  status = checkRng( );
-  if( !status ) return false;
-
-  status = checkAvgSample( );
-  if( !status ) return false;
-
-  status = checkTRG( );
-  if( !status ) return false;
-
-  return true;
-
-}
-
 bool TetrAMMInterface::sendCommand( std::string command ){
 
   int status;
@@ -236,23 +210,86 @@ bool TetrAMMInterface::communicate( std::string command ){
 bool TetrAMMInterface::receiveData( ){
 
   int status;
+  memset( outBuffer, 0, sizeof(outBuffer) );
+  status = recv( sockfd, (char*)&outBuffer, numBytes, 0 );
+  if( status < 0 ) return false;
 
-  uint32_t numBytes;
+  return true;
+
+}
+
+void TetrAMMInterface::decodeSample( int iSample ){
+
+  if( isASCII )
+  {
+    double* out = (double*)outBuffer;
+    for( int i = 0; i < numBytes / 8; ++i ){
+      memset(&samplesBuffer[i][iSample], out[i], sizeof(double));
+    }
+  }
+  else
+  {
+    double* out = (double*)outBuffer;
+    for( int i = 0; i < numBytes / 8; ++i ){
+      memset(&samplesBuffer[i][iSample], out[i], sizeof(double));
+    }
+  }
+
+}
+
+void TetrAMMInterface::decodeData( ){
+
+  if( isASCII )
+  {
+    double* out = (double*)outBuffer;
+    for( int i = 0; i < numBytes / 8; ++i ){
+      memset(&dataBuffer[i], out[i], sizeof(double));
+    }
+  }
+  else
+  {
+    double* out = (double*)outBuffer;
+    for( int i = 0; i < numBytes / 8; ++i ){
+      memset(&dataBuffer[i], out[i], sizeof(double));
+    }
+  }
+
+}
+
+void TetrAMMInterface::writeData( ){
+
+  uint64_t time = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - startTime).count();
+
+  dataFile << time << " ";
+  for( int i = 0; i < nChannels; i++ ) dataFile << dataBuffer[i] << " ";
+  dataFile << std::endl;
+
+}
+
+bool TetrAMMInterface::readSettings( ){
+
+  bool status;
+
+  status = checkVersion( );
+  if( !status ) return false;
+
+  status = checkASCII( );
+  if( !status ) return false;
+
+  status = checkNumberOfChannels( );
+  if( !status ) return false;
+
+  status = checkRng( );
+  if( !status ) return false;
+
+  status = checkAvgSample( );
+  if( !status ) return false;
+
+  status = checkTRG( );
+  if( !status ) return false;
+
   if( isASCII ) numBytes = 16 * nChannels + 1;
   else numBytes = 8 * (nChannels + 1);
-
-  memset( outBuffer, 0, sizeof(outBuffer) );
-  
-  status = recv( sockfd, (char*)&outBuffer, numBytes, 0 );
-  uint64_t* out = (uint64_t*)outBuffer;
-  double* data = (double*)outBuffer;
-  std::cout << "Bytes: " << status << std::endl;
-  for( int i = 0; i < numBytes / 8; ++i ){
-    double s;
-    memset(&s, out[i], sizeof(s));
-    std::cout << i << "  " << std::hex << out[i] << "  " << std::dec << s << std::endl;
-  }
-  if( status < 0 ) return false;
 
   return true;
 
@@ -287,21 +324,6 @@ bool TetrAMMInterface::checkVersion( ){
 
 }
 
-bool TetrAMMInterface::activateASCII( ){
-
-  std::string command = "ASCII:ON";
-
-  bool status;
-  status = communicate( command );
-  if( !status ) return false;
-  status = checkResponse( );
-  if( !status ) return false;
-    
-  isASCII = true;
-  return true;
-
-}
-
 bool TetrAMMInterface::checkASCII( ){
 
   std::string command = "ASCII:?";
@@ -325,36 +347,6 @@ bool TetrAMMInterface::checkASCII( ){
 
 }
 
-bool TetrAMMInterface::deactivateASCII( ){
-
-  std::string command = "ASCII:OFF";
-
-  bool status;
-  status = communicate( command );
-  if( !status ) return false;
-  status = checkResponse( );
-  if( !status ) return false;
-    
-  isASCII = false;
-  return true;
-
-}
-
-bool TetrAMMInterface::setNumberOfChannels( int number ){
-
-  std::string command = "CHN:" + std::to_string( number );
-
-  bool status;
-  status = communicate( command );
-  if( !status ) return false;
-  status = checkResponse( );
-  if( !status ) return false;
-    
-  nChannels = number;
-  return true;
-
-}
-
 bool TetrAMMInterface::checkNumberOfChannels( ){
 
   std::string command = "CHN:?";
@@ -365,53 +357,6 @@ bool TetrAMMInterface::checkNumberOfChannels( ){
 
   std::string response = outBuffer;
   nChannels = std::stoi( response.substr(4,1) );
-  return true;
-
-}
-
-bool TetrAMMInterface::readNumSamples( int numSamples ){
-
-  std::string command = "FASTNAQ:" + std::to_string( numSamples );
-
-  bool status;
-  status = sendCommand( command );
-  if( !status ) return false;
-
-  for( int i = 0; i < numSamples; i++ ){
-    status = receiveData( );
-    std::cout << "Read Data:  " << i << " " << status << std::endl;
-    if( !status ) return false;
-  }
-
-  if( isASCII )
-  {
-    status = receiveCommand( );
-    if( !status ) return false;
-    status = checkResponse( );
-    if( !status ) return false;
-  }
-  else
-  {
-    status = receiveData( );
-    std::cout << "Read Data:  " << status << std::endl;
-    if( !status ) return false;
-  }
-
-  return true;
-
-}
-
-bool TetrAMMInterface::readSample( ){
-
-  std::string command = "GET:?";
-
-  bool status;
-  status = sendCommand( command );
-  if( !status ) return false;
-
-  status = receiveData( );
-  if( !status ) return false;
-
   return true;
 
 }
@@ -430,53 +375,6 @@ bool TetrAMMInterface::checkAvgSample( ){
 
 }
 
-bool TetrAMMInterface::setAvgSamples( int numSamples ){
-
-  std::string command = "NRSAMP:" + std::to_string( numSamples );
-
-  bool status;
-  status = communicate( command );
-  if( !status ) return false;
-  status = checkResponse( );
-  if( !status ) return false;
-
-  nSamples = numSamples;
-  return true;
-
-}
-
-bool TetrAMMInterface::readAvgSample( int numSamples ){
-
-  std::string command = "NAQ:" + std::to_string( numSamples );
-
-  bool status;
-  status = sendCommand( command );
-  if( !status ) return false;
-
-  for( int i = 0; i < numSamples; i++ ){
-    status = receiveData( );
-    std::cout << "Read Data:  " << i << " " << status << std::endl;
-    if( !status ) return false;
-  }
-
-  if( isASCII )
-  {
-    status = receiveCommand( );
-    if( !status ) return false;
-    status = checkResponse( );
-    if( !status ) return false;
-  }
-  else
-  {
-    status = receiveData( );
-    std::cout << "Read Data:  " << status << std::endl;
-    if( !status ) return false;
-  }
-
-  return true;
-
-}
-
 bool TetrAMMInterface::checkRng( ){
 
   std::string command = "RNG:?";
@@ -487,21 +385,6 @@ bool TetrAMMInterface::checkRng( ){
 
   std::string response = outBuffer;
   rng = std::stoi( response.substr(4,1) );
-  return true;
-
-}
-
-bool TetrAMMInterface::setRng( int range ){
-
-  std::string command = "RNG:" + std::to_string( range );
-
-  bool status;
-  status = communicate( command );
-  if( !status ) return false;
-  status = checkResponse( );
-  if( !status ) return false;
-
-  rng = range;
   return true;
 
 }
@@ -526,6 +409,40 @@ bool TetrAMMInterface::checkTRG( ){
     return true;
   }
   else return false;
+
+}
+
+bool TetrAMMInterface::activateASCII( ){
+
+  std::string command = "ASCII:ON";
+
+  bool status;
+  status = communicate( command );
+  if( !status ) return false;
+  status = checkResponse( );
+  if( !status ) return false;
+
+  numBytes = 16 * nChannels + 1;
+  isASCII = true;
+
+  return true;
+
+}
+
+bool TetrAMMInterface::deactivateASCII( ){
+
+  std::string command = "ASCII:OFF";
+
+  bool status;
+  status = communicate( command );
+  if( !status ) return false;
+  status = checkResponse( );
+  if( !status ) return false;
+
+  numBytes = 8 * (nChannels + 1);    
+  isASCII = false;
+
+  return true;
 
 }
 
@@ -559,16 +476,151 @@ bool TetrAMMInterface::deactivateTRG( ){
 
 }
 
-bool TetrAMMInterface::startAcquisition( ){
+bool TetrAMMInterface::setRng( int range ){
+
+  std::string command = "RNG:" + std::to_string( range );
+
+  bool status;
+  status = communicate( command );
+  if( !status ) return false;
+  status = checkResponse( );
+  if( !status ) return false;
+
+  rng = range;
+  return true;
+
+}
+
+bool TetrAMMInterface::setNumberOfChannels( int number ){
+
+  std::string command = "CHN:" + std::to_string( number );
+
+  bool status;
+  status = communicate( command );
+  if( !status ) return false;
+  status = checkResponse( );
+  if( !status ) return false;
+  
+  nChannels = number;
+  if( isASCII ) numBytes = 16 * nChannels + 1;
+  else numBytes = 8 * (nChannels + 1);
+
+  return true;
+
+}
+
+bool TetrAMMInterface::setAvgSamples( int numSamples ){
+
+  std::string command = "NRSAMP:" + std::to_string( numSamples );
+
+  bool status;
+  status = communicate( command );
+  if( !status ) return false;
+  status = checkResponse( );
+  if( !status ) return false;
+
+  nSamples = numSamples;
+  return true;
+
+}
+
+bool TetrAMMInterface::readSample( ){
+
+  std::string command = "GET:?";
+
+  bool status;
+  status = sendCommand( command );
+  if( !status ) return false;
+
+  status = receiveData( );
+  if( !status ) return false;
+
+  return true;
+
+}
+
+bool TetrAMMInterface::readNumSamples( int seconds ){
+
+  int numSamples = 100000 * seconds;
+  std::string command = "FASTNAQ:" + std::to_string( numSamples );
+
+  bool status;
+  status = sendCommand( command );
+  if( !status ) return false;
+
+  for( int i = 0; i < numSamples; i++ ){
+    status = receiveData( );
+    std::cout << "Read Data:  " << i << " " << status << std::endl;
+    if( !status ) return false;
+      decodeSample( i );
+  }
+
+  if( isASCII )
+  {
+    status = receiveCommand( );
+    if( !status ) return false;
+    status = checkResponse( );
+    if( !status ) return false;
+  }
+  else
+  {
+    status = receiveData( );
+    std::cout << "Read Data:  " << status << std::endl;
+    if( !status ) return false;
+  }
+
+  return true;
+
+}
+
+// FIXME: This function is not working properly
+bool TetrAMMInterface::readAvgSample( int seconds ){
+
+  this->setAvgSamples(100000 * seconds);
+  std::string command = "NAQ:1";
+
+  bool status;
+  status = sendCommand( command );
+  if( !status ) return false;
+
+  status = receiveData( );
+  std::cout << "Read Data: " << status << std::endl;
+  if( !status ) return false;
+  decodeData( );
+
+  if( isASCII )
+  {
+    status = receiveCommand( );
+    if( !status ) return false;
+    status = checkResponse( );
+    if( !status ) return false;
+  }
+  else
+  {
+    status = receiveData( );
+    std::cout << "Read Data:  " << status << std::endl;
+    if( !status ) return false;
+  }
+
+  return true;
+
+}
+
+bool TetrAMMInterface::startAcquisition( int seconds, std::string fileName ){
 
   std::string command = "ACQ:ON";
+
+  // We want to read the samples averaged over 1 second
+  this->setAvgSamples(100000 * seconds);
+  
+  dataFile.open(fileName);
+  writeHeader();
 
   bool status;
   status = sendCommand( command );
   if( !status ) return false;
 
   startCall = true;
-
   dataThread = new boost::thread( &TetrAMMInterface::acqusitionThread, this );
     
   isAcquiring = true;
@@ -578,14 +630,19 @@ bool TetrAMMInterface::startAcquisition( ){
 
 bool TetrAMMInterface::stopAcquisition( ){
 
+  std::string command = "ACQ:OFF";
+
+  // Stopping the acquisition thread
   startCall = false;
   dataThread->join();
   dataThread = NULL;
 
-  std::string command = "ACQ:OFF";
+  // Writing the footer
+  writeFooter();
+  dataFile.close();
 
-  bool status;
   // We call communicate to flush the remaining buffer
+  bool status;
   status = communicate( command );
   if( !status ) return false;
 
@@ -602,14 +659,43 @@ bool TetrAMMInterface::stopAcquisition( ){
 
 void TetrAMMInterface::acqusitionThread( ){
 
+  startTime = std::chrono::system_clock::now();
+
   bool status;
-  int nsamples = 0;
   while( startCall ){
     status = receiveData( );
-    std::cout << "Read Data:  " << " " << status << std::endl;
-    nsamples += 1;
+    decodeData( );
+    writeData( );
   }
 
-  std::cout << "Number of Samples: " << nsamples << std::endl;
+  stopTime = std::chrono::system_clock::now();
+
+}
+
+void TetrAMMInterface::writeHeader( ){
+  
+  std::string startTime = std::to_string(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+  
+  dataFile << "#TetrAMM Data File" << std::endl;
+  dataFile << "#Version: " << ver << std::endl;
+  dataFile << "#ASCII: " << isASCII << std::endl;
+  dataFile << "#Channels: " << nChannels << std::endl;
+  dataFile << "#Range: " << rng << std::endl;
+  dataFile << "#Samples: " << nSamples << std::endl;
+  dataFile << "#Trigger: " << isTRG << std::endl;
+  dataFile << "#" << std::endl;
+  dataFile << "#Start Time: " << startTime << std::endl;
+  dataFile << "#Time (s) ";
+  for( int i = 0; i < nChannels; i++ ) dataFile << "Channel " << i << " ";
+  dataFile << std::endl;
+
+}
+
+void TetrAMMInterface::writeFooter( ){
+
+  std::string stopTime = std::to_string(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+
+  dataFile << "#Stop Time: " << stopTime << std::endl;
+  dataFile << std::endl;
 
 }

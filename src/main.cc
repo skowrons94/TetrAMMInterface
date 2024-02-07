@@ -19,7 +19,6 @@ int main(int argc, char** argv) {
     }
   }
 
-
   TetrAMMInterface tetrAMMInterface;
   tetrAMMInterface.connect(address, port);
 
