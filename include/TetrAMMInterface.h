@@ -10,6 +10,7 @@
 #define MAX_COMMAND_LEN 256
 #define SUCCESS "ACK"
 
+#include <iostream>
 #include <string>
 #include <chrono>
 #include <fstream>
@@ -27,6 +28,12 @@ class TetrAMMInterface {
     public:
         TetrAMMInterface( );
         ~TetrAMMInterface( ){};
+
+        // Verbose
+        void setVerbose( int v ){ verbose = v; }
+
+        // Clean buffers
+        void cleanBuffers( );
 
         // Initalization
         bool readSettings( );
@@ -71,13 +78,13 @@ class TetrAMMInterface {
         bool setAvgSamples( int numSamples );
         bool setNumberOfChannels( int number );
         
-        // Read data
+        // Read Samples
         bool readSample( );
-        bool readNumSamples( int seconds = 1 );
-        bool readAvgSample( int seconds = 1 ); // FIXME: This function is not working properly
+        bool readSamples( float seconds = 1 );
+        void dumpSamples( );
 
         // Acqusition
-        bool startAcquisition( int seconds = 1, std::string filename = "data.txt");
+        bool startAcquisition( float seconds = 1, std::string filename = "data.txt");
         bool stopAcquisition( );
         void acqusitionThread( );
         void writeHeader( );
@@ -91,6 +98,9 @@ class TetrAMMInterface {
         int getRng( ){ return rng; }
         int getNumberOfSamples( ){ return nSamples; }
         int getNumberOfChannels( ){ return nChannels; }
+
+        double* getSample( int ch ){ return sampleBuffer[ch]; }
+        double getData( int ch ){ return dataBuffer[ch]; }
         
         std::string getVersion( ){ return ver; }
 
@@ -105,7 +115,7 @@ class TetrAMMInterface {
         char outBuffer[MAX_COMMAND_LEN];
 
         double dataBuffer[MAX_CHANNELS];
-        double samplesBuffer[MAX_CHANNELS][SAMPLING_RATE];
+        double sampleBuffer[MAX_CHANNELS][SAMPLING_RATE];
 
         int rng;
         int nChannels;
@@ -123,6 +133,8 @@ class TetrAMMInterface {
         boost::thread* dataThread;
 
         std::ofstream dataFile;
+
+        int verbose;
 
 };
 

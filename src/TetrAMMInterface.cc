@@ -3,11 +3,47 @@
 #include <iostream>
 #include <string.h>
 
+double endian_swap(double d)
+{
+    long x = *(long *)&d;
+    x = (x & 0x00000000FFFFFFFF) << 32 | (x & 0xFFFFFFFF00000000) >> 32;
+    x = (x & 0x0000FFFF0000FFFF) << 16 | (x & 0xFFFF0000FFFF0000) >> 16;
+    x = (x & 0x00FF00FF00FF00FF) << 8  | (x & 0xFF00FF00FF00FF00) >> 8;
+
+    return *(double *)&x;
+}
+
+float precision( float f, int places )
+{
+    float n = std::pow(10.0f, places ) ;
+    return std::round(f * n) / n ;
+}
+
 TetrAMMInterface::TetrAMMInterface( ){
 
-    port = 0;
-    sockfd = -1;
-    address = "";
+  port = 0;
+  sockfd = -1;
+  address = "";
+  verbose = 1;
+
+  cleanBuffers( );
+
+}
+
+void TetrAMMInterface::cleanBuffers( ){
+
+  memset( &inBuffer, 0, sizeof(inBuffer) );
+  memset( &outBuffer, 0, sizeof(outBuffer) );
+
+  for( int i = 0; i < MAX_CHANNELS; i++ ){
+    for( int j = 0; j < SAMPLING_RATE; j++ ){
+      sampleBuffer[i][j] = 0;
+    }
+  }
+
+  for( int i = 0; i < MAX_CHANNELS; i++ ){
+    dataBuffer[i] = 0;
+  }
 
 }
 
@@ -151,7 +187,7 @@ bool TetrAMMInterface::connect( std::string address, int port ){
     return false;
   }
 
-  std::cout << "Connected to " << address << " on port " << port << std::endl;
+  if( verbose > 0 ) std::cout << "Connected to " << address << " on port " << port << std::endl;
 
   if( this->readSettings( ) ) return true;
   else{
@@ -171,7 +207,7 @@ bool TetrAMMInterface::sendCommand( std::string command ){
   memset( &inBuffer, 0, sizeof(inBuffer) );
   strcpy( inBuffer, command.c_str() );
 
-  std::cout << "Command: " << inBuffer << std::endl;
+  if( verbose > 1 ) std::cout << "Command: " << inBuffer << std::endl;
   status = send( sockfd, (char*)&inBuffer, sizeof(command), 0 );
   
   if( status < 0 ) return false;
@@ -186,8 +222,8 @@ bool TetrAMMInterface::receiveCommand( ){
   memset( outBuffer, 0, sizeof(outBuffer) );
 
   status = recv( sockfd, (char*)&outBuffer, sizeof(outBuffer), 0 );
-  std::cout << "Status: " << status << std::endl;
-  std::cout << "Response: " << outBuffer << std::endl;
+  if( verbose > 1 ) std::cout << "Bytes: " << status << std::endl;
+  if( verbose > 1 ) std::cout << "Response: " << outBuffer << std::endl;
   if( status < 0 ) return false;
 
   return true;
@@ -212,6 +248,7 @@ bool TetrAMMInterface::receiveData( ){
   int status;
   memset( outBuffer, 0, sizeof(outBuffer) );
   status = recv( sockfd, (char*)&outBuffer, numBytes, 0 );
+  if( verbose > 1 ) std::cout << "Bytes: " << status << std::endl;
   if( status < 0 ) return false;
 
   return true;
@@ -222,16 +259,18 @@ void TetrAMMInterface::decodeSample( int iSample ){
 
   if( isASCII )
   {
-    double* out = (double*)outBuffer;
+    std::string out = std::string( outBuffer );
     for( int i = 0; i < numBytes / 8; ++i ){
-      memset(&samplesBuffer[i][iSample], out[i], sizeof(double));
+      sampleBuffer[i][iSample] = std::stod( out.substr(16*i, 16) );
+      if( verbose > 1 ) std::cout << sampleBuffer[i][iSample] << std::endl;
     }
   }
   else
   {
-    double* out = (double*)outBuffer;
     for( int i = 0; i < numBytes / 8; ++i ){
-      memset(&samplesBuffer[i][iSample], out[i], sizeof(double));
+      memcpy(&sampleBuffer[i][iSample], &outBuffer[i*sizeof(double)], sizeof(double));
+      sampleBuffer[i][iSample] = endian_swap(sampleBuffer[i][iSample]);
+      if( verbose > 1 ) std::cout << sampleBuffer[i][iSample] << std::endl;
     }
   }
 
@@ -241,16 +280,18 @@ void TetrAMMInterface::decodeData( ){
 
   if( isASCII )
   {
-    double* out = (double*)outBuffer;
-    for( int i = 0; i < numBytes / 8; ++i ){
-      memset(&dataBuffer[i], out[i], sizeof(double));
+    std::string out = std::string( outBuffer );
+    for( int i = 0; i < nChannels; ++i ){
+      dataBuffer[i] = std::stod( out.substr(16*i, 16) );
+      if( verbose > 1 ) std::cout << dataBuffer[i] << std::endl;
     }
   }
   else
   {
-    double* out = (double*)outBuffer;
     for( int i = 0; i < numBytes / 8; ++i ){
-      memset(&dataBuffer[i], out[i], sizeof(double));
+      memcpy(&dataBuffer[i], &outBuffer[i*sizeof(double)], sizeof(double));
+      dataBuffer[i] = endian_swap(dataBuffer[i]);
+      if( verbose > 1 ) std::cout << dataBuffer[i] << std::endl;
     }
   }
 
@@ -258,10 +299,12 @@ void TetrAMMInterface::decodeData( ){
 
 void TetrAMMInterface::writeData( ){
 
-  uint64_t time = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - startTime).count();
+  // Get time in float format
+  std::chrono::duration<float> elapsed_seconds = std::chrono::system_clock::now() - startTime;
+  float time = elapsed_seconds.count();
 
-  dataFile << time << " ";
-  for( int i = 0; i < nChannels; i++ ) dataFile << dataBuffer[i] << " ";
+  dataFile << std::setw(10) << precision(time, 1) << " ";
+  for( int i = 0; i < nChannels; i++ ) dataFile << std::setw(21) << dataBuffer[i] << " ";
   dataFile << std::endl;
 
 }
@@ -319,7 +362,7 @@ bool TetrAMMInterface::checkVersion( ){
   if( !status ) return false;
 
   std::string response = outBuffer;
-  ver = response.substr(4);
+  ver = response.substr(4, response.size( ) - 6);
   return true;
 
 }
@@ -539,10 +582,12 @@ bool TetrAMMInterface::readSample( ){
 
 }
 
-bool TetrAMMInterface::readNumSamples( int seconds ){
+bool TetrAMMInterface::readSamples( float seconds ){
 
   int numSamples = 100000 * seconds;
   std::string command = "FASTNAQ:" + std::to_string( numSamples );
+
+  cleanBuffers();
 
   bool status;
   status = sendCommand( command );
@@ -550,7 +595,6 @@ bool TetrAMMInterface::readNumSamples( int seconds ){
 
   for( int i = 0; i < numSamples; i++ ){
     status = receiveData( );
-    std::cout << "Read Data:  " << i << " " << status << std::endl;
     if( !status ) return false;
       decodeSample( i );
   }
@@ -565,7 +609,6 @@ bool TetrAMMInterface::readNumSamples( int seconds ){
   else
   {
     status = receiveData( );
-    std::cout << "Read Data:  " << status << std::endl;
     if( !status ) return false;
   }
 
@@ -573,48 +616,35 @@ bool TetrAMMInterface::readNumSamples( int seconds ){
 
 }
 
-// FIXME: This function is not working properly
-bool TetrAMMInterface::readAvgSample( int seconds ){
+void TetrAMMInterface::dumpSamples( ){
 
-  this->setAvgSamples(100000 * seconds);
-  std::string command = "NAQ:1";
+  dataFile.open("dump.txt");
 
-  bool status;
-  status = sendCommand( command );
-  if( !status ) return false;
-
-  status = receiveData( );
-  std::cout << "Read Data: " << status << std::endl;
-  if( !status ) return false;
-  decodeData( );
-
-  if( isASCII )
-  {
-    status = receiveCommand( );
-    if( !status ) return false;
-    status = checkResponse( );
-    if( !status ) return false;
-  }
-  else
-  {
-    status = receiveData( );
-    std::cout << "Read Data:  " << status << std::endl;
-    if( !status ) return false;
+  for( int i = 0; i < nSamples; i++ ){
+    for( int j = 0; j < nChannels; j++ ){
+      if( sampleBuffer[j][i] != 0 ){
+        dataFile << sampleBuffer[j][i] << " ";
+      }
+    }
+    dataFile << std::endl;
   }
 
-  return true;
+  dataFile.close();
 
 }
 
-bool TetrAMMInterface::startAcquisition( int seconds, std::string fileName ){
+bool TetrAMMInterface::startAcquisition( float seconds, std::string fileName ){
 
   std::string command = "ACQ:ON";
 
-  // We want to read the samples averaged over 1 second
-  this->setAvgSamples(100000 * seconds);
+  // We want to read the samples averaged over 1 second * float scaling
+  int numSamples = 100000 * seconds;
+  this->setAvgSamples(numSamples);
   
+  startTime = std::chrono::system_clock::now();
   dataFile.open(fileName);
   writeHeader();
+  cleanBuffers();
 
   bool status;
   status = sendCommand( command );
@@ -622,8 +652,10 @@ bool TetrAMMInterface::startAcquisition( int seconds, std::string fileName ){
 
   startCall = true;
   dataThread = new boost::thread( &TetrAMMInterface::acqusitionThread, this );
-    
   isAcquiring = true;
+
+  if( verbose > 0 ) std::cout << "Acquisition started." << std::endl;
+
   return true;
 
 }
@@ -638,6 +670,7 @@ bool TetrAMMInterface::stopAcquisition( ){
   dataThread = NULL;
 
   // Writing the footer
+  stopTime = std::chrono::system_clock::now();
   writeFooter();
   dataFile.close();
 
@@ -653,49 +686,60 @@ bool TetrAMMInterface::stopAcquisition( ){
   if( !status ) return false;
     
   isAcquiring = false;
+
+  if( verbose > 0 ) std::cout << "Acquisition stopped." << std::endl;
+
   return true;
 
 }
 
 void TetrAMMInterface::acqusitionThread( ){
 
-  startTime = std::chrono::system_clock::now();
-
   bool status;
   while( startCall ){
     status = receiveData( );
-    decodeData( );
-    writeData( );
+    if ( status )
+    {
+      decodeData( );
+      writeData( );
+    }
   }
-
-  stopTime = std::chrono::system_clock::now();
 
 }
 
 void TetrAMMInterface::writeHeader( ){
   
-  std::string startTime = std::to_string(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+  // Get start time in YYYY-MM-DD HH:MM:SS format
+  std::time_t t = std::chrono::system_clock::to_time_t(startTime);
+  std::tm tm = *std::localtime(&t);
+  char buffer[20];
+  std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &tm);
+  std::string start(buffer);
   
-  dataFile << "#TetrAMM Data File" << std::endl;
-  dataFile << "#Version: " << ver << std::endl;
-  dataFile << "#ASCII: " << isASCII << std::endl;
-  dataFile << "#Channels: " << nChannels << std::endl;
-  dataFile << "#Range: " << rng << std::endl;
-  dataFile << "#Samples: " << nSamples << std::endl;
-  dataFile << "#Trigger: " << isTRG << std::endl;
-  dataFile << "#" << std::endl;
-  dataFile << "#Start Time: " << startTime << std::endl;
-  dataFile << "#Time (s) ";
-  for( int i = 0; i < nChannels; i++ ) dataFile << "Channel " << i << " ";
+  dataFile << "# TetrAMM Data File" << std::endl;
+  dataFile << "# Version: " << ver << std::endl;
+  dataFile << "# ASCII: " << isASCII << std::endl;
+  dataFile << "# Channels: " << nChannels << std::endl;
+  dataFile << "# Range: " << rng << std::endl;
+  dataFile << "# Samples: " << nSamples << std::endl;
+  dataFile << "# Trigger: " << isTRG << std::endl;
+  dataFile << "# Start: " << start << std::endl;
+  dataFile << "# Time (s) ";
+  for( int i = 0; i < nChannels; i++ ) dataFile << std::setw(16) << "Channel " << i << " (A) ";
   dataFile << std::endl;
 
 }
 
 void TetrAMMInterface::writeFooter( ){
 
-  std::string stopTime = std::to_string(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+  // Get stop time in YYYY-MM-DD HH:MM:SS format
+  std::time_t t = std::chrono::system_clock::to_time_t(stopTime);
+  std::tm tm = *std::localtime(&t);
+  char buffer[20];
+  std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &tm);
+  std::string stop(buffer);
 
-  dataFile << "#Stop Time: " << stopTime << std::endl;
+  dataFile << "# Stop: " << stop << std::endl;
   dataFile << std::endl;
 
 }
