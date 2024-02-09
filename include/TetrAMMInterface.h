@@ -23,6 +23,8 @@
 
 #include <boost/thread.hpp>
 
+#include "GraphiteReporter.h"
+
 class TetrAMMInterface {
 
     public:
@@ -90,6 +92,11 @@ class TetrAMMInterface {
         void writeHeader( );
         void writeFooter( );
 
+        // Graphite
+        void setGraphite( std::string host, int port );
+        void removeGraphite( );
+        void sendGraphite( );
+
         // Getters
         bool getTRG( ){ return isTRG; }
         bool getASCII( ){ return isASCII; }
@@ -135,6 +142,8 @@ class TetrAMMInterface {
         std::ofstream dataFile;
 
         int verbose;
+
+        GraphiteReporter* reporter;
 
 };
 

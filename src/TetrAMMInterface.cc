@@ -25,8 +25,33 @@ TetrAMMInterface::TetrAMMInterface( ){
   sockfd = -1;
   address = "";
   verbose = 1;
+  reporter = NULL;
 
   cleanBuffers( );
+
+}
+
+void TetrAMMInterface::setGraphite( std::string host, int port ){
+  reporter = new GraphiteReporter( host, port );
+  reporter->connect();
+}
+
+void TetrAMMInterface::removeGraphite( ){
+  reporter->disconnect();
+  delete reporter;
+  reporter = NULL;
+}
+
+void TetrAMMInterface::sendGraphite( ){
+
+  if( reporter != NULL )
+  {
+    for( int i = 0; i < nChannels; i++ )
+    {
+      std::string channel = "current/channel" + std::to_string(i);
+      reporter->send( channel, dataBuffer[i] );
+    }
+  }
 
 }
 
@@ -702,6 +727,7 @@ void TetrAMMInterface::acqusitionThread( ){
     {
       decodeData( );
       writeData( );
+      sendGraphite( );
     }
   }
 

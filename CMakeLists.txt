@@ -16,6 +16,8 @@ include_directories(
 add_executable(TetrAMMInterface
   ${SRC_DIR}/main.cc
   ${SRC_DIR}/TetrAMMInterface.cc
+  ${SRC_DIR}/GraphiteConnector.cpp
+  ${SRC_DIR}/GraphiteReporter.cpp
 )
 
 target_link_libraries(TetrAMMInterface PRIVATE ${Boost_LIBRARIES})

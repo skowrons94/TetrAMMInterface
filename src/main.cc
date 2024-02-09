@@ -71,6 +71,8 @@ int main(int argc, char** argv) {
   if( ascii ) tetrAMMInterface.activateASCII();
   else tetrAMMInterface.deactivateASCII();
 
+  tetrAMMInterface.setGraphite( "127.0.0.1", 2003 );
+
   std::cout << std::endl;
   std::cout << "Connected to TetrAMM at " << address << ":" << port << std::endl;
   std::cout << "Number of channels: " << channels << std::endl;
